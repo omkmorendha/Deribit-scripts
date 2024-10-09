@@ -3,6 +3,7 @@
 #include <thread>
 #include <unordered_map>
 #include <set>
+#include <queue>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <boost/beast/websocket.hpp>
@@ -16,6 +17,7 @@ using tcp = asio::ip::tcp;
 
 const int DEPTH = 3;
 const int PORT = 4221;
+const int WAIT_TIME = 5;
 const std::string API_URL = "https://test.deribit.com/api/v2/public/get_order_book?instrument_name=";
 
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
@@ -46,6 +48,8 @@ class session : public std::enable_shared_from_this<session> {
     websocket::stream<tcp::socket> ws_;
     asio::steady_timer timer_;
     std::set<std::string> subscribed_symbols_;
+    std::queue<std::string> message_queue_;
+    bool writing_in_progress_ = false;
 
 public:
     session(tcp::socket socket) : ws_(std::move(socket)), timer_(ws_.get_executor()) {}
@@ -74,25 +78,46 @@ public:
     }
 
     void send_order_book_updates() {
-        if (!subscribed_symbols_.empty()) {
-            auto symbol = *subscribed_symbols_.begin();
-            std::string order_book = get_order_book(symbol);
-
-            ws_.text(true);
-            ws_.async_write(asio::buffer(order_book), [self = shared_from_this(), symbol](beast::error_code ec, std::size_t) {
-                if (!ec) {
-                    self->subscribed_symbols_.erase(symbol);  // Remove symbol after sending
-                    self->send_order_book_updates();          // Continue sending updates for other symbols
-                } else {
-                    std::cerr << "Failed to send message: " << ec.message() << std::endl;
-                }
-            });
+        if (writing_in_progress_) {
+            return;  // Don't start a new write if one is in progress
         }
 
-        timer_.expires_after(std::chrono::seconds(5));
+        if (!subscribed_symbols_.empty()) {
+            for (const auto& symbol : subscribed_symbols_) {
+                std::string order_book = get_order_book(symbol);
+                message_queue_.push(order_book);
+            }
+        }
+
+        timer_.expires_after(std::chrono::seconds(WAIT_TIME));
         timer_.async_wait([self = shared_from_this()](beast::error_code ec) {
             if (!ec) {
-                self->send_order_book_updates();
+                self->write_next_message();  // Write the next message in the queue
+            }
+        });
+    }
+
+    void write_next_message() {
+        if (writing_in_progress_ || message_queue_.empty()) {
+            return;
+        }
+
+        std::string message = message_queue_.front();
+        message_queue_.pop();
+
+        ws_.text(true);
+        writing_in_progress_ = true;
+        ws_.async_write(asio::buffer(message), [self = shared_from_this()](beast::error_code ec, std::size_t) {
+            self->writing_in_progress_ = false;
+
+            if (!ec) {
+                if (!self->message_queue_.empty()) {
+                    self->write_next_message();  // Continue writing the next message
+                } else {
+                    self->send_order_book_updates();  // Queue up more updates
+                }
+            } else {
+                std::cerr << "Failed to send message: " << ec.message() << std::endl;
             }
         });
     }
