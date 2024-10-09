@@ -74,12 +74,16 @@ public:
     }
 
     void send_order_book_updates() {
-        for (const auto& symbol : subscribed_symbols_) {
+        if (!subscribed_symbols_.empty()) {
+            auto symbol = *subscribed_symbols_.begin();
             std::string order_book = get_order_book(symbol);
 
             ws_.text(true);
-            ws_.async_write(asio::buffer(order_book), [self = shared_from_this()](beast::error_code ec, std::size_t) {
-                if (ec) {
+            ws_.async_write(asio::buffer(order_book), [self = shared_from_this(), symbol](beast::error_code ec, std::size_t) {
+                if (!ec) {
+                    self->subscribed_symbols_.erase(symbol);  // Remove symbol after sending
+                    self->send_order_book_updates();          // Continue sending updates for other symbols
+                } else {
                     std::cerr << "Failed to send message: " << ec.message() << std::endl;
                 }
             });
