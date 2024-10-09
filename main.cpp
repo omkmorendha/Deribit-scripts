@@ -88,7 +88,7 @@ void place_order() {
     }
 
     string instrument_name, label, type, direction;
-    int amount;
+    float amount;
 
     cout << "Enter direction (buy/sell): ";
     cin >> direction;
@@ -252,8 +252,8 @@ void modify_order() {
 
     string modify_url = "https://test.deribit.com/api/v2/private/edit?order_id=" + order_id + 
                         "&amount=" + to_string(amount) + 
-                        "&price=" + to_string(price) + 
-                        "&advanced=" + advanced;
+                        "&price=" + to_string(price); 
+                        // "&advanced=" + advanced;
 
     CURL* curl;
     CURLcode res;
