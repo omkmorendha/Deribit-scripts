@@ -25,8 +25,17 @@ bool is_token_expired() {
 }
 
 void refresh_token() {
-    string client_id = getenv("CLIENT_ID");
-    string api_key = getenv("API_KEY");
+    // Fetch environment variables and check for nullptr
+    const char* client_id_env = getenv("CLIENT_ID");
+    const char* api_key_env = getenv("API_KEY");
+
+    if (client_id_env == nullptr || api_key_env == nullptr) {
+        cerr << "Environment variables CLIENT_ID or API_KEY not set." << endl;
+        return;
+    }
+
+    string client_id = client_id_env;
+    string api_key = api_key_env;
     string token_url = "https://test.deribit.com/api/v2/public/auth?client_id=" + client_id + "&client_secret=" + api_key + "&grant_type=client_credentials";
     
     CURL* curl;
